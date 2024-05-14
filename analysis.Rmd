@@ -227,8 +227,51 @@ for (ps in psychometrics){
 ```
 
 
+### Plot the cross language averages
 
-Plotting for these results
+```{r}
+
+# Merge the dataframes
+dll_agg_surp_df %>%
+  rename(target = comp) %>%
+  mutate(sig = case_when( ptest_pval >= 0.05 ~ " ",
+                          ptest_pval < 0.05 & ptest_pval >= 0.01  ~ "*",
+                          ptest_pval < 0.01 & ptest_pval >= 0.001  ~ "**",
+                          ptest_pval < 0.001  ~ "***")) %>%
+  mutate(psychometric = case_when(psychometric == "firstfix_rt" ~ "First Fixation", 
+                                  psychometric == "gaze_rt" ~ "Gaze Duration", 
+                                  psychometric == "total_rt" ~ "Total Fixation")) %>%
+  mutate(model = case_when(model == "mgpt_lc" ~ "mGPT",
+                           model == "monot_all" ~ "monoT")) %>%
+  mutate(model = factor(model, levels = c("mGPT", "monoT"))) %>%
+  mutate(target = factor(target, levels = c("pmi", "freq", "surp", "pmi+freq", "surp+freq", "all"))) %>%
+  ggplot(aes(x = target, y = mean, color = target)) +
+    geom_hline(yintercept=0, color="black", linetype="dashed", alpha =0.5) +
+    geom_point(position = position_dodge(width = 0.6), size = 3) +
+    #geom_text(aes(y = 0.08, label = sig), size = 3, show.legend = FALSE) +
+    geom_errorbar(aes(ymin=lower, ymax=upper), width = 0.1, position = position_dodge(width = 0.6)) +
+    ylab("Delta Log Liklihood \n (average  per word)") + 
+    xlab("") +
+    facet_grid(.~psychometric) +
+    labs(color = "RT Predictor") +
+    #scale_x_discrete(labels = c(bquote(w[t-2]), bquote(w[t-1]), bquote(w[t]))) +
+    #scale_color_manual(values = c("#a1dab4", "#41b6c4", "#225ea8")) +
+    #ggtitle("Contribution of Surprisal to ΔLL") +
+  theme(
+    text = element_text(family="serif"),
+    legend.position = "right",
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1)#,
+    #panel.border = element_rect(color = "grey", fill =  NA, size = 0.5)
+  )
+
+ggsave("./images/results_agg.pdf", device = "pdf", width = 8.5, height = 2.7)
+
+
+```
+
+
+### Plot everything in a combined figure
 
 
 ```{r}
@@ -314,28 +357,46 @@ for(lang in langs) {
   }
 }
 
+```
+
+```{r}
+
 alpha=0.05
-result = samples_df %>% 
-    group_by(target, lang, psychometric, target_var) %>% 
+result = samples_df %>%
+    group_by(target, psychometric, target_var) %>% 
       summarise(y_lower=quantile(y, alpha / 2), 
                 y_upper=quantile(y, 1 - alpha / 2),
                 y=mean(y),
                 n=n()) %>% 
     ungroup() %>%
-  filter( !(target_var != "pmi" & target < 0) )
+    filter( !(target_var != "pmi" & target < 0) ) %>%
+    group_by(psychometric, target_var) %>%
+      mutate(offset = if_else(target_var != "pmi", first(y), median(y)),
+             y = y - offset,
+             y_lower = y_lower - offset,
+             y_upper = y_upper - offset) %>%
+    ungroup()
+
 
 ```
 
 ```{r}
 
 result %>%
-  filter(psychometric == "gaze_rt") %>%
-  ggplot(aes(x= target, y=y, color = lang, fill=lang)) +
+  mutate(psychometric = case_when(psychometric == "firstfix_rt" ~ "First Fixation", 
+                                  psychometric == "gaze_rt" ~ "Gaze Duration", 
+                                  psychometric == "total_rt" ~ "Total Fixation")) %>%
+  mutate(target_var = factor(target_var, levels = c("freq", "surp", "pmi"), labels = c("Freq", "Surp", "PMI"))) %>%
+  ggplot(aes(x= target, y=y, fill = psychometric)) +
     geom_line() +
     geom_ribbon(aes(x=target, ymin=y_lower, ymax=y_upper), alpha=0.3, colour = NA) +
-    facet_grid(.~target_var) +
+    facet_wrap(target_var~psychometric, scales="free_x", strip.position = "top", nrow=1) +
+  ylab("Predicted Slowdown in MS") +
+  xlab("Value of Predictor in Model") +
   theme(
-    legend.position = "right"
+    legend.position = "bottom",
+    text = element_text(family="serif")
+    #strip.text = element_text(size = 12)
   )
 
 ggsave("./images/function.pdf", device = "pdf", width = 10, height = 4.5)
