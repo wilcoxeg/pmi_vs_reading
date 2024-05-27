@@ -69,6 +69,7 @@ combined_df %>%
 
 ```
 
+## EXPERIMENT 2: GAMs to study effect of each predictor
 ## Compute DLL for Each Language
 
 ```{r}
@@ -89,7 +90,7 @@ model_cross_val = function(form, id, df, d_var, mixed_effects, psychometric, lan
     
     # Save models to use later for looking at the effect
     # Don't save the ensemble models
-    if(id %in% c("freq", "pmi", "surp")) {
+    if(id %in% c("freq", "pmi", "surp", "pmi+freq", "surp+freq", "all", "baseline")) {
       model_id = paste(lang, psychometric, id, i, sep="-")
       saveRDS(model, file=paste("./models/", model_id,".rds", sep=""))
     }
@@ -107,7 +108,7 @@ model_cross_val = function(form, id, df, d_var, mixed_effects, psychometric, lan
 
 ```{r}
 
-regression_names = c("surp", "freq", "pmi", "pmi+freq", "surp+freq", "all", "baseline")
+regression_names = c("surp", "freq", "pmi", "pmi+freq", "surp+freq", "baseline")
 
 dll_raw_df = data.frame()
 
@@ -130,23 +131,23 @@ for (lang in langs) {
       
       regression_forms = c(
         #paste0(psychometric, " ~ surp + prev_surp + prev2_surp + freq + prev_freq + prev2_freq + len + prev_len + prev2_len"), # SURPRISAL
-        paste(psychometric, "~ s(surp, bs = 'cr', k = 6) + s(prev_surp, bs = 'cr', k = 6) + te(len, bs = 'cr') + te(prev_len, bs = 'cr')"), #SURPRISAL
+        paste(psychometric, "~ s(surp, bs = 'cr', k = 6) + s(prev_surp, bs = 'cr', k = 6) + s(len, bs = 'cr', k = 6) + s(prev_len, bs = 'cr', k = 6)"), #SURPRISAL
         
         #paste0(psychometric, " ~ freq + prev_freq + prev2_freq + len + prev_len + prev2_len"), # FREQUENCY
-        paste(psychometric, "~ s(freq, bs = 'cr', k = 6) + s(prev_freq, bs = 'cr', k = 6) + te(len, bs = 'cr') + te(prev_len, bs = 'cr')"), #FREQUENCY
+        paste(psychometric, "~ s(freq, bs = 'cr', k = 6) + s(prev_freq, bs = 'cr', k = 6) + s(len, bs = 'cr', k = 6) + s(prev_len, bs = 'cr', k = 6)"), #FREQUENCY
         
         #paste0(psychometric, " ~ pmi + prev_pmi + prev2_pmi + freq + prev_freq + prev2_freq + len + prev_len + prev2_len"), # PMI
-        paste(psychometric, "~ s(pmi, bs = 'cr', k = 6) + s(prev_pmi, bs = 'cr', k = 6) + te(len, bs = 'cr') + te(prev_len, bs = 'cr')"), #PMI
+        paste(psychometric, "~ s(pmi, bs = 'cr', k = 6) + s(prev_pmi, bs = 'cr', k = 6) + s(len, bs = 'cr', k = 6) + s(prev_len, bs = 'cr', k = 6)"), #PMI
         
-        paste(psychometric, "~ s(pmi, bs = 'cr', k = 6) + s(prev_pmi, bs = 'cr', k = 6) + s(freq, bs = 'cr', k = 6) + s(prev_freq, bs = 'cr', k = 6) + te(len, bs = 'cr') + te(prev_len, bs = 'cr')"), #PMI+FREQ
+        paste(psychometric, "~ s(pmi, bs = 'cr', k = 6) + s(prev_pmi, bs = 'cr', k = 6) + s(freq, bs = 'cr', k = 6) + s(prev_freq, bs = 'cr', k = 6) + s(len, bs = 'cr', k = 6) + s(prev_len, bs = 'cr', k = 6)"), #PMI+FREQ
         
-        paste(psychometric, "~ s(surp, bs = 'cr', k = 6) + s(prev_surp, bs = 'cr', k = 6) + s(freq, bs = 'cr', k = 6) + s(prev_freq, bs = 'cr', k = 6) + te(len, bs = 'cr') + te(prev_len, bs = 'cr')"), #SURP+FREQ
+        paste(psychometric, "~ s(surp, bs = 'cr', k = 6) + s(prev_surp, bs = 'cr', k = 6) + s(freq, bs = 'cr', k = 6) + s(prev_freq, bs = 'cr', k = 6) + s(len, bs = 'cr', k = 6) + s(prev_len, bs = 'cr', k = 6)"), #SURP+FREQ
 
 
-        paste(psychometric, "~ s(pmi, bs = 'cr', k = 6) + s(prev_pmi, bs = 'cr', k = 6) + s(freq, bs = 'cr', k = 6) + s(prev_freq, bs = 'cr', k = 6) + s(surp, bs = 'cr', k = 6) + s(prev_surp, bs = 'cr', k = 6)+  te(len, bs = 'cr') + te(prev_len, bs = 'cr')"), #ALL
+#        paste(psychometric, "~ s(pmi, bs = 'cr', k = 6) + s(prev_pmi, bs = 'cr', k = 6) + s(freq, bs = 'cr', k = 6) + s(prev_freq, bs = 'cr', k = 6) + s(surp, bs = 'cr', k = 6) + s(prev_surp, bs = 'cr', k = 6)+  te(len, bs = 'cr') + te(prev_len, bs = 'cr')"), #ALL
 
         #paste0(psychometric, " ~ freq + prev_freq + prev2_freq + len + prev_len + prev2_len") # BASELINE
-        paste(psychometric, "~ te(len, bs = 'cr') + te(prev_len, bs = 'cr')") #BASELINE
+        paste(psychometric, "~ s(len, bs = 'cr', k = 6) + s(prev_len, bs = 'cr', k = 6)") #BASELINE
       )
       
       loglik_df = data.frame(names=regression_names, forms=regression_forms) %>%
@@ -163,7 +164,13 @@ for (lang in langs) {
 
 ```
 
-
+# Inspect model concurvity
+```{r}
+model_id = "en-gaze_rt-freq-1"
+file_name = paste("./models/", model_id,".rds", sep="")
+model = readRDS(file_name)
+concurvity(model)
+```
 
 ## Data for each language individually
 
