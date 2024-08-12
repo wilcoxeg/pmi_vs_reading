@@ -20,6 +20,8 @@ shhh(library(rsample))
 shhh(library(plotrix))
 shhh(library(ggrepel))
 shhh(library(mgcv))
+shhh(library(car))
+
 library(jmuOutlier) # For paired permutation tests
 
 theme_set(theme_bw())
@@ -31,7 +33,8 @@ options(dplyr.summarise.inform = FALSE)
 
 set.seed(444)
 langs = c("du", "en", "fi", "ge", "gr", "he", "it", "ko", "sp", "tr", "ru")
-psychometrics = c("total_rt", "gaze_rt", "firstfix_rt")
+#psychometrics = c("total_rt", "gaze_rt", "firstfix_rt")
+psychometrics = c("gaze_rt")
 models = c("mgpt_lc")
 comps = c("target", "baseline")
 
@@ -61,11 +64,14 @@ write.csv(combined_df %>% dplyr::select(-X), "./combined_df.csv")
 
 ```{r}
 
-combined_df %>%
-  filter(lang == "en") %>%
-  ggplot(aes(x = surp, y=freq, color = pmi)) +
-    geom_point()
+cor.test(combined_df$freq, combined_df$surp)
+cor.test(combined_df$freq, combined_df$pmi)
 
+m_surp = lm(gaze_rt ~ surp + prev_surp + prev2_surp + freq + prev_freq + prev2_freq, data=combined_df)
+vif(m_surp)
+
+m_pmi = lm(gaze_rt ~ pmi + prev_pmi + prev2_pmi + freq + prev_freq + prev2_freq, data=combined_df)
+vif(m_pmi)
 
 ```
 ## EXPERIMENT 1: Linear models to interpret coefficients and effects that are orthogonal to frequency
@@ -125,8 +131,8 @@ get_model_coeffs = function(form, df, mixed_effects, num_folds=10){
 
 ```{r}
 
-#toggle_surp = FALSE
-toggle_surp = TRUE
+toggle_surp = FALSE
+#toggle_surp = TRUE
 
 xlang_coeff_df = data.frame(matrix(ncol = 5, nrow = 0))
 columnnames = c("intercept", "surp OR pmi", "previous surp OR pmi", "frequency", "previous frequency")
@@ -250,8 +256,9 @@ coeff_plotting_df = xlang_coeff_df %>%
 ```{r}
 coeff_plotting_df %>%
     mutate(lang = factor(lang, levels = c("du", "en", "fi", "ge", "gr", "he", "it", "ko", "ru", "sp", "tr"),
-       labels = c("Dutch", "English", "Finnish", "German", "Greek", "Hebrew", "Italian", "Korean", "Russian",
-                  "Spanish", "Turkish"))) %>%
+       labels = c("Dutch\n(DU)", "English\n(EN)", "Finnish\n(FI)", "German\n(GE)", "Greek\n(GR)", "Hebrew\n(HE)", "Italian\n(IT)", "Korean\n(KO)", "Russian\n(RU)",
+                  "Spanish\n(SP)", "Turkish\n(TR)"))) %>%
+  filter(position == "w t") %>%
   ggplot(aes(x = position, y = m, fill = predictor)) +
     geom_bar(stat="identity", position = position_dodge(width = 0.9)) +
     geom_errorbar(aes(ymin=lower, ymax=upper), position = position_dodge(width = 0.9), width = 0.1) +
@@ -259,14 +266,18 @@ coeff_plotting_df %>%
   ylab("Coefficient Estimate (ms/bit)") +
   facet_grid(cols = vars(lang), scales = "free_y") +
   scale_x_discrete(labels = c(bquote(w[t]), bquote(w[t-1]))) +
+  scale_fill_brewer(palette = "Set2") +
   #scale_color_manual(values = c("#225ea8", "#41b6c4", "#a1dab4")) +
+  
+  guides(fill=guide_legend(ncol=2)) +
   theme(
     text = element_text(family = "serif"),
     axis.title.x = element_blank(),
-    legend.position = "bottom"
+    legend.position = "bottom",
+    panel.spacing = unit(0.1, "lines")
   )
 
-ggsave("./images/orthogonalized_comparison_coeffs.pdf", width = 10, height = 4)
+ggsave("./images/orthogonalized_comparison_coeffs_wt.pdf", width = 5.5, height = 3.5)
 
 #if (toggle_surp) {
 #  ggsave("./images/surprisal_coeffs.pdf", width = 10, height = 5)
@@ -277,11 +288,15 @@ ggsave("./images/orthogonalized_comparison_coeffs.pdf", width = 10, height = 4)
 ```
 
 ```{r}
-coeff_plotting_df %>%
-  filter(name == "surp") %>%
-  group_by(model) %>%
-    summarise(m = mean(m)) %>%
-  ungroup()
+estimate_df = coeff_plotting_df %>%
+  dplyr::select(lang, name, orthogonalized, surp, m) %>%
+  filter(name == "frequency" & surp == T) %>%
+  mutate(orthogonalized = if_else(orthogonalized == T, "orth", "non_orth")) %>%
+  spread(orthogonalized, m) %>%
+  mutate(diff = orth - non_orth) %>%
+  mutate( percent_decrease = diff / orth)
+
+mean(estimate_df$percent_decrease)
 
 ```
 
@@ -507,6 +522,64 @@ for (ps in psychometrics){
 ```
 
 
+### Plot all the languages
+
+```{r}
+
+# Merge the dataframes
+dll_xlang_surp_df %>%
+  rename(target = comp) %>%
+  mutate(sig = case_when( ptest_pval >= 0.05 ~ " ",
+                          ptest_pval < 0.05 & ptest_pval >= 0.01  ~ "*",
+                          ptest_pval < 0.01 & ptest_pval >= 0.001  ~ "**",
+                          ptest_pval < 0.001  ~ "***")) %>%
+  mutate(psychometric = case_when(psychometric == "firstfix_rt" ~ "First Fixation", 
+                                  psychometric == "gaze_rt" ~ "Gaze Duration", 
+                                  psychometric == "total_rt" ~ "Total Fixation")) %>%
+  mutate(model = case_when(model == "mgpt_lc" ~ "mGPT",
+                           model == "monot_all" ~ "monoT")) %>%
+  mutate(model = factor(model, levels = c("mGPT", "monoT"))) %>%
+  #mutate(target = factor(target, levels = c("freq", "surp", "pmi", "osurp", "surp+freq", "pmi+freq", "osurp+freq"), labels = c("Frequency", "Surprisal", "PMI", "Orthogonalized\nSurprisal/PMI", "Surprisal & Frequency", "PMI & Frequency", "Orthogonalized\nSurp./PMI & Freq."))) %>%
+  mutate(target = factor(target, levels = c("freq", "surp", "pmi", "osurp", "surp+freq", "pmi+freq", "osurp+freq"), labels = c("Freq.", "Surp.", "PMI", "Orthog.\nSurp./PMI", "Surp.\n& Freq.", "PMI\n& Freq.", "Orthog.\nSurp./PMI\n& Freq."))) %>%
+
+  
+   
+  ggplot(aes(x = target, y = mean, color = lang)) +
+    #scale_x_discrete(labels =c("freq", "surp", "pmi", "orthogonalized\nsurp/pmi", "surp+freq", "pmi+freq", "orthogonalized\nsurp/pmi+freq")) + 
+    geom_hline(yintercept=0, color="black", linetype="dashed", alpha =0.5) +
+  
+    #geom_point(position = position_dodge(width = 0.1), size = 2) +
+    geom_errorbar(aes(ymin=lower, ymax=upper), width = 0.1, position = position_dodge(width = 0.8 ), alpha=0.3) +
+    
+    geom_label(aes(label=lang, group=lang), size=2.5, position = position_dodge(width = 0.8), label.padding=unit(0.5, "mm")) +
+
+    #geom_text_repel(aes(label=lang, group=target), size=3, label.padding=unit(0.7, "mm"), min.segment.length = unit(0, 'lines')) +
+  
+    #geom_text(aes(y = 0.08, label = sig), size = 3, show.legend = FALSE) +
+    ylab("Delta Log Liklihood \n (average  per word)") + 
+    xlab("") +
+    facet_grid(.~target, scales="free", space = "free") +
+    labs(color = "") +
+    guides(color=guide_legend(ncol=2)) +
+    #scale_x_discrete(labels = c(bquote(w[t-2]), bquote(w[t-1]), bquote(w[t]))) +
+    #scale_color_manual(values = c("#a1dab4", "#41b6c4", "#225ea8")) +
+    #ggtitle("Contribution of Surprisal to ΔLL") +
+  theme(
+    strip.background = element_blank(),
+    strip.text.x = element_blank(),
+    text = element_text(family="serif"),
+    legend.position = "none",
+    axis.title.x = element_blank(),
+    panel.spacing = unit(0.1, "lines"),
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5)#,
+    #panel.border = element_rect(color = "grey", fill =  NA, size = 0.5)
+  )
+
+ggsave("./images/results_agg_all_langs.pdf", device = "pdf", width = 3.5, height = 3)
+
+
+```
+
 ### Plot the cross language averages
 
 ```{r}
@@ -524,32 +597,51 @@ dll_agg_surp_df %>%
   mutate(model = case_when(model == "mgpt_lc" ~ "mGPT",
                            model == "monot_all" ~ "monoT")) %>%
   mutate(model = factor(model, levels = c("mGPT", "monoT"))) %>%
-  mutate(target = factor(target, levels = c("freq", "surp", "pmi", "osurp", "surp+freq", "pmi+freq", "osurp+freq"), labels = c("frequency", "surprisal", "pmi", "orthogonalized surprisal/pmi", "surprisal and frequency", "pmi and frequency", "orthogonalized surprisal/pmi and frequency"))) %>%
-  ggplot(aes(x = target, y = mean, color = target)) + scale_x_discrete(labels =c("freq", "surp", "pmi", "osurp", "surp+freq", "pmi+freq", "osurp+freq")) + 
+  mutate(target = factor(target, levels = c("freq", "surp", "pmi", "osurp", "surp+freq", "pmi+freq", "osurp+freq"), labels = c("frequency", "surprisal", "pmi", "orthogonalized\nsurprisal/pmi", "surprisal & freq", "pmi & freq", "orthogonalized\nsurprisal/pmi & freq"))) %>%
+  ggplot(aes(x = target, y = mean, color = target)) + scale_x_discrete(labels =c("freq", "surp", "pmi", "orthogonalized\nsurp/pmi", "surp+freq", "pmi+freq", "orthogonalized\nsurp/pmi+freq")) + 
     geom_hline(yintercept=0, color="black", linetype="dashed", alpha =0.5) +
     geom_point(position = position_dodge(width = 0.6), size = 3) +
     #geom_text(aes(y = 0.08, label = sig), size = 3, show.legend = FALSE) +
     geom_errorbar(aes(ymin=lower, ymax=upper), width = 0.1, position = position_dodge(width = 0.6)) +
     ylab("Delta Log Liklihood \n (average  per word)") + 
     xlab("") +
-    facet_grid(.~psychometric) +
-    labs(color = "RT Predictor") +
+    #facet_grid(.~psychometric) +
+    labs(color = "") +
+    guides(color=guide_legend(ncol=2)) +
     #scale_x_discrete(labels = c(bquote(w[t-2]), bquote(w[t-1]), bquote(w[t]))) +
     #scale_color_manual(values = c("#a1dab4", "#41b6c4", "#225ea8")) +
     #ggtitle("Contribution of Surprisal to ΔLL") +
   theme(
     text = element_text(family="serif"),
-    legend.position = "right",
+    legend.position = "none",
     axis.title.x = element_blank(),
     axis.text.x = element_text(angle = 45, hjust = 1)#,
     #panel.border = element_rect(color = "grey", fill =  NA, size = 0.5)
   )
 
-ggsave("./images/results_agg.pdf", device = "pdf", width = 8.5, height = 4)
+ggsave("./images/results_agg_gd.pdf", device = "pdf", width = 3, height = 4.5)
 
 
 ```
 
+```{r}
+dll_freq = dll_raw_df %>% filter(names == "freq")
+dll_osurp = dll_raw_df %>% filter(names == "osurp+freq")
+dll_surp_freq = dll_raw_df %>% filter(names == "surp+freq")
+dll_pmi_freq = dll_raw_df %>% filter(names == "pmi+freq")
+
+print("Comparing surp+freq // osurp+freq")
+perm.test(dll_surp_freq$logliks, dll_osurp$logliks, num.sim=2000)
+
+print("Comparing surp+freq // pmi+freq")
+perm.test(dll_surp_freq$logliks, dll_pmi_freq$logliks, num.sim=2000)
+
+print("Comparing osurp+freq // pmi+freq")
+perm.test(dll_osurp$logliks, dll_pmi_freq$logliks, num.sim=2000)
+
+#table(dll_raw_df$names)
+
+```
 
 ### Plot everything in a combined figure
 
